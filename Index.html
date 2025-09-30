@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spin the Wheel 🎡</title>
+<style>
+  :root { --size: 420px; }
+  body{
+    font-family: system-ui, Arial, sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    min-height:100svh; margin:0; background:#fff7f9;
+  }
+  .app{ text-align:center; padding:24px; }
+  .wheel-wrap{
+    position:relative; width:var(--size); height:var(--size); margin-inline:auto;
+  }
+  canvas{ width:100%; height:100%; display:block; filter:drop-shadow(0 10px 25px rgba(0,0,0,.15)); background:#fff; border-radius:50%; }
+  /* Pointer */
+  .pointer{
+    position:absolute; top:-18px; left:50%; transform:translateX(-50%);
+    width:0; height:0; border-left:18px solid transparent; border-right:18px solid transparent;
+    border-bottom:28px solid #111; filter:drop-shadow(0 3px 0 rgba(0,0,0,.2));
+  }
+  .hub{
+    position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+  }
+  .hub::after{
+    content:""; width:76px; height:76px; background:#111; border-radius:50%;
+    box-shadow:0 0 0 6px #fff inset, 0 3px 10px rgba(0,0,0,.25);
+  }
+  button{
+    margin-top:18px; font-size:1.1rem; padding:10px 18px; border:0; border-radius:8px;
+    background:#ff4f81; color:#fff; cursor:pointer;
+  }
+  button:hover{ filter:brightness(.95); }
+  #result{ margin-top:12px; font-size:1.2rem; color:#222; min-height:1.4em; }
+  .help{ font-size:.85rem; color:#555; margin-top:6px; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Spin the Wheel 🎡</h1>
+
+    <div class="wheel-wrap">
+      <div class="pointer" aria-hidden="true"></div>
+      <canvas id="wheel" width="500" height="500"></canvas>
+      <div class="hub" aria-hidden="true"></div>
+    </div>
+
+    <button id="spinBtn">Spin</button>
+    <div id="result">—</div>
+    <div class="help">Tip: Edit the labels in the code below where it says <code>labels</code>.</div>
+  </div>
+
+<script>
+/* --------- Config: edit your labels here --------- */
+let labels = [
+  "Position 1","Position 2","Position 3","Position 4",
+  "Position 5","Position 6","Position 7","Position 8"
+];
+/* ------------------------------------------------- */
+
+const canvas = document.getElementById("wheel");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+const cx = W/2, cy = H/2, radius = Math.min(W,H)/2 - 6;
+
+let currentRotation = -Math.PI/2; // so 12 o'clock is index 0 baseline
+let spinning = false;
+let rafId = null;
+
+/** Draw wheel */
+function drawWheel(){
+  ctx.clearRect(0,0,W,H);
+
+  const n = labels.length;
+  const arc = (2*Math.PI)/n;
+
+  // slices
+  for(let i=0;i<n;i++){
+    const start = currentRotation + i*arc;
+    const end   = start + arc;
+
+    // alternating slice color
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,radius,start,end,false);
+    ctx.closePath();
+    ctx.fillStyle = i%2 ? "#3498db" : "#f39c12";
+    ctx.fill();
+
+    // label
+    ctx.save();
+    ctx.translate(cx,cy);
+    const mid = start + arc/2;
+    const labelR = radius*0.72;
+    ctx.rotate(mid);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 18px system-ui, Arial";
+    // shrink font for long labels
+    const text = labels[i];
+    const maxWidth = radius*0.9;
+    let fontSize = 18;
+    while (ctx.measureText(text).width > maxWidth && fontSize>10){
+      fontSize -= 1;
+      ctx.font = `bold ${fontSize}px system-ui, Arial`;
+    }
+    ctx.translate(labelR,0);
+    ctx.rotate(Math.PI/2); // make upright
+    ctx.fillText(text,0,0);
+    ctx.restore();
+  }
+
+  // ring
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius,0,2*Math.PI);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#111";
+  ctx.stroke();
+}
+
+/** Ease-out cubic */
+const easeOutCubic = (t)=>1-Math.pow(1-t,3);
+
+/** Spin logic: choose an index uniformly and compute target angle so that index lands at pointer (12 o'clock) */
+function spin(){
+  if(spinning || labels.length===0) return;
+  spinning = true;
+  document.getElementById("result").textContent = "Spinning…";
+
+  const n = labels.length;
+  const arc = (2*Math.PI)/n;
+
+  // uniformly choose a winning index
+  const winningIndex = Math.floor(Math.random()*n);
+
+  // pointer is fixed at -90° (12 o'clock). We want slice center at pointer when finished.
+  // Slice i center angle (in wheel coordinates from 0) is i*arc + arc/2.
+  // We solve for final rotation so that: currentRotation_final + i*arc + arc/2 = -PI/2 (mod 2PI)
+  // => currentRotation_final = -PI/2 - (i*arc + arc/2) + k*2PI
+  let targetRotationBase = -Math.PI/2 - (winningIndex*arc + arc/2);
+
+  // Add multiple extra spins for drama + a tiny random jitter within the slice
+  const extraSpins = 3 + Math.floor(Math.random()*3); // 3–5 full spins
+  const jitter = (Math.random()-0.5) * (arc*0.6); // stay well inside slice
+  const targetRotation = targetRotationBase + extraSpins*2*Math.PI + jitter;
+
+  // Animate from currentRotation -> targetRotation over duration
+  const start = performance.now();
+  const duration = 3200 + Math.random()*800; // 3.2–4.0s
+  const startRotation = currentRotation;
+
+  function tick(now){
+    const t = Math.min(1, (now - start) / duration);
+    const eased = easeOutCubic(t);
+    currentRotation = startRotation + (targetRotation - startRotation) * eased;
+    drawWheel();
+    if(t < 1){
+      rafId = requestAnimationFrame(tick);
+    } else {
+      cancelAnimationFrame(rafId);
+      spinning = false;
+
+      // Confirm winner (guard against jitter rounding)
+      const normalized = ((currentRotation + Math.PI/2) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+      // which slice center is closest to pointer = 12 o'clock → index
+      const idx = ((Math.round(((-normalized) - arc/2) / arc) % n) + n) % n;
+      const winner = labels[idx];
+      document.getElementById("result").textContent = "Result: " + winner;
+    }
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+/* Init */
+drawWheel();
+document.getElementById("spinBtn").addEventListener("click", spin);
+
+/* Optional helpers (uncomment to dynamically change labels)
+   Example: labels = ["A","B","C"]; drawWheel();
+*/
+</script>
+</body>
+</html>
